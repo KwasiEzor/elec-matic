@@ -5,6 +5,7 @@ import { ArrowLeft, Send, Paperclip, CheckCircle, FileText, Mail } from 'lucide-
 import { useInvoiceStore, calcGrandTotal, formatCurrency } from '../../lib/invoiceStore';
 import { useCMSStore } from '../../lib/cmsStore';
 import { generateInvoicePDF } from '../../lib/invoicePdf';
+import { sendInvoiceEmail } from '../../lib/emailService';
 import { Toast } from '../components/FormUI';
 
 export default function InvoiceSendPage() {
@@ -37,20 +38,98 @@ export default function InvoiceSendPage() {
   const total = calcGrandTotal(invoice.items);
 
   const handleSend = async () => {
-    if (!email) return;
+    if (!email) {
+      setToast('❌ Veuillez entrer une adresse email');
+      return;
+    }
+
+    console.log('📤 Début envoi email...', {
+      to: email,
+      invoiceNumber: invoice.number,
+      apiUrl: 'http://localhost:3001/api/send-invoice'
+    });
+
     setSending(true);
 
-    // Generate PDF for download
-    const pdf = generateInvoicePDF(invoice, companyData);
-    pdf.save(`${invoice.number}.pdf`);
+    try {
+      // Generate PDF
+      console.log('📄 Génération PDF...');
+      const pdf = generateInvoicePDF(invoice, companyData);
 
-    // Simulate email sending
-    await new Promise((r) => setTimeout(r, 1500));
-    markAsSent(invoice.id, email);
-    setSending(false);
-    setSent(true);
-    setToast('Facture envoyée avec succès !');
-    setTimeout(() => navigate(`/admin/invoices/${invoice.id}`), 2500);
+      // Get PDF as base64 data URL for email attachment
+      console.log('🔄 Conversion PDF en base64...');
+      const pdfDataUrl = pdf.output('dataurlstring');
+      console.log('✅ PDF prêt, taille:', pdfDataUrl.length, 'caractères');
+
+      // Send email with PDF attachment
+      console.log('📧 Envoi email via API...');
+      const result = await sendInvoiceEmail({
+        to: email,
+        subject,
+        body,
+        pdfDataUrl,
+        invoiceNumber: invoice.number,
+        companyName: companyData.name,
+      });
+
+      console.log('📬 Résultat API:', result);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur lors de l\'envoi');
+      }
+
+      // Also download PDF locally
+      console.log('💾 Téléchargement PDF local...');
+      pdf.save(`${invoice.number}.pdf`);
+
+      // Mark invoice as sent
+      console.log('✅ Marquage facture comme envoyée...');
+      markAsSent(invoice.id, email);
+      setSending(false);
+      setSent(true);
+
+      // Show success message with Mailpit link
+      const message = import.meta.env.DEV
+        ? `✅ Facture envoyée ! Consultez Mailpit: ${result.mailpitUrl || 'http://localhost:8025'}`
+        : '✅ Facture envoyée avec succès !';
+
+      console.log('🎉 Succès!', message);
+      setToast(message);
+
+      // Open Mailpit in new tab if in dev
+      if (import.meta.env.DEV && result.mailpitUrl) {
+        console.log('🌐 Ouverture Mailpit...');
+        setTimeout(() => window.open(result.mailpitUrl, '_blank'), 500);
+      }
+
+      // Navigate back after 3 seconds
+      setTimeout(() => navigate(`/admin/invoices/${invoice.id}`), 3000);
+
+    } catch (error) {
+      console.error('❌ Erreur envoi email:', error);
+      setSending(false);
+
+      let errorMessage = 'Erreur lors de l\'envoi';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+
+        // Specific error messages
+        if (error.message.includes('Failed to fetch')) {
+          errorMessage = '❌ Serveur email non accessible. Vérifiez que le serveur tourne: npm run dev:email';
+        } else if (error.message.includes('NetworkError')) {
+          errorMessage = '❌ Erreur réseau. Vérifiez votre connexion.';
+        }
+      }
+
+      setToast(errorMessage);
+
+      // Show error in console for debugging
+      console.error('Détails erreur:', {
+        error,
+        message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
   };
 
   return (

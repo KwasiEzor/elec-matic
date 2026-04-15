@@ -34,6 +34,12 @@ export default function InvoicesPage() {
   const totalPending = invoices.filter((i) => i.status === 'sent').reduce((sum, i) => sum + calcGrandTotal(i.items), 0);
   const totalDraft = invoices.filter((i) => i.status === 'draft').length;
 
+  // Get recently sent invoices (last 24 hours)
+  const recentlySent = invoices
+    .filter(i => i.sentAt && new Date(i.sentAt).getTime() > Date.now() - 24 * 60 * 60 * 1000)
+    .sort((a, b) => new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime())
+    .slice(0, 3);
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
   const handleDuplicate = (id: string) => {
@@ -65,6 +71,48 @@ export default function InvoicesPage() {
           <Plus className="w-4 h-4" /> Nouvelle facture
         </Link>
       </PageHeader>
+
+      {/* Recently Sent Banner */}
+      {recentlySent.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-500/10 to-blue-500/5 border border-blue-500/20"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+              <Send className="w-5 h-5 text-blue-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-blue-400 font-semibold text-sm mb-2">
+                📬 Récemment envoyées ({recentlySent.length})
+              </h3>
+              <div className="space-y-1.5">
+                {recentlySent.map(inv => (
+                  <div key={inv.id} className="flex items-center justify-between text-sm">
+                    <Link
+                      to={`/admin/invoices/${inv.id}`}
+                      className="text-slate-300 hover:text-white transition-colors"
+                    >
+                      <span className="font-medium">{inv.number}</span>
+                      <span className="text-slate-500 mx-2">→</span>
+                      <span>{inv.client.name}</span>
+                    </Link>
+                    <span className="text-slate-500 text-xs">
+                      {new Date(inv.sentAt!).toLocaleString('fr-BE', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
