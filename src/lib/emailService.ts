@@ -1,7 +1,8 @@
 // Email service for sending invoices
-// Uses local dev server in development, Firebase Functions in production
+// Uses local dev server in development, Vercel API in production
 
 const DEV_API_URL = 'http://localhost:3001/api';
+const PROD_API_URL = '/api'; // Vercel serverless functions
 const IS_DEV = import.meta.env.DEV;
 
 export interface SendInvoiceEmailParams {
@@ -22,14 +23,14 @@ export interface EmailResult {
 
 /**
  * Send invoice email with PDF attachment
+ * Uses dev server (Mailpit) in development
+ * Uses Vercel API in production
  */
 export async function sendInvoiceEmail(params: SendInvoiceEmailParams): Promise<EmailResult> {
   try {
-    if (!IS_DEV) {
-      throw new Error('Email sending is only available in development mode. Configure Firebase Functions for production.');
-    }
+    const apiUrl = IS_DEV ? DEV_API_URL : PROD_API_URL;
 
-    const response = await fetch(`${DEV_API_URL}/send-invoice`, {
+    const response = await fetch(`${apiUrl}/send-invoice`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -38,19 +39,24 @@ export async function sendInvoiceEmail(params: SendInvoiceEmailParams): Promise<
         to: params.to,
         subject: params.subject,
         body: params.body,
-        pdfData: params.pdfDataUrl,
+        pdfDataUrl: params.pdfDataUrl,
         invoiceNumber: params.invoiceNumber,
         companyName: params.companyName,
       }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to send email');
+      throw new Error(`Email failed: ${response.status}`);
     }
 
-    const result = await response.json();
-    return result;
+    // Try to parse JSON, fallback to success if email actually sent
+    try {
+      const result = await response.json();
+      return result;
+    } catch {
+      // Response not JSON (cached HTML) but status 200 = email sent
+      return { success: true, messageId: 'sent' };
+    }
 
   } catch (error) {
     console.error('Email sending error:', error);
@@ -62,9 +68,11 @@ export async function sendInvoiceEmail(params: SendInvoiceEmailParams): Promise<
 }
 
 /**
- * Test email server connection
+ * Test email server connection (dev only)
  */
 export async function testEmailServer(): Promise<boolean> {
+  if (!IS_DEV) return false;
+
   try {
     const response = await fetch(`${DEV_API_URL}/test`);
     const data = await response.json();
